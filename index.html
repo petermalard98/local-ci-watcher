@@ -44,10 +44,15 @@ const icon = { succeeded:"✓", failed:"✗", running:"●", skipped:"–" };
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const open = new Set();
 let prev = {};
+const since = {};          // job id -> ms when status last changed
+const collapsed = new Set(); // finished jobs auto-collapsed after idle
+let last = [], lastInteract = Date.now();
+const IDLE_MS = 60000;
 
 function render(jobs) {
+  last = jobs;
   document.getElementById("jobs").innerHTML = jobs.map(j => {
-    const isOpen = j.status === "running" || j.status === "failed" || open.has(j.id);
+    const isOpen = j.status === "running" || (!collapsed.has(j.id) && (j.status === "failed" || open.has(j.id)));
     const meta = [j.repository, j.ref?.replace("refs/heads/", ""), j.sha?.slice(0, 7),
                   j.run_number && "#" + j.run_number].filter(Boolean).map(esc).join(" · ");
     return `<details class="job ${j.status}" data-id="${esc(j.id)}" ${isOpen ? "open" : ""}>
@@ -76,8 +81,21 @@ function notifyChanges(jobs) {
 
 document.addEventListener("toggle", e => {
   const id = e.target.dataset?.id;
-  if (id) e.target.open ? open.add(id) : open.delete(id);
+  if (!id) return;
+  if (e.target.open) { open.add(id); collapsed.delete(id); } else open.delete(id);
 }, true);
+
+["pointerdown", "keydown", "wheel"].forEach(t =>
+  addEventListener(t, () => lastInteract = Date.now(), true));
+
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const j of last)
+    if (j.status !== "running" && !collapsed.has(j.id) && now - Math.max(lastInteract, since[j.id] || 0) > IDLE_MS)
+      collapsed.add(j.id), changed = true;
+  if (changed) render(last);
+}, 5000);
 
 const btn = document.getElementById("notify");
 if ("Notification" in window && Notification.permission === "default") {
@@ -92,6 +110,7 @@ es.onerror = () => conn.textContent = "disconnected, retrying…";
 let first = true;
 es.onmessage = e => {
   const jobs = JSON.parse(e.data);
+  jobs.forEach(j => { if (prev[j.id] !== j.status) { since[j.id] = Date.now(); collapsed.delete(j.id); } });
   if (first) { jobs.forEach(j => prev[j.id] = j.status); first = false; }
   else notifyChanges(jobs);
   render(jobs);

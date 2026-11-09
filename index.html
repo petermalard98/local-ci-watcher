@@ -33,7 +33,7 @@
 </head>
 <body>
 <main>
-  <h1>Local CI Watcher <span id="conn">connecting…</span> <button id="notify" hidden>Enable notifications</button></h1>
+  <h1>Local CI Watcher <span id="conn">connecting…</span> <span id="ts" class="meta"></span> <button id="notify" hidden>Enable notifications</button></h1>
   <div id="jobs"></div>
 </main>
 <script>
@@ -91,6 +91,7 @@ es.onmessage = e => {
   if (first) { jobs.forEach(j => prev[j.id] = j.status); first = false; }
   else notifyChanges(jobs);
   render(jobs);
+  document.getElementById("ts").textContent = "updated " + new Date().toLocaleTimeString();
 };
 </script>
 </body>

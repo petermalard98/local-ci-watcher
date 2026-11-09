@@ -27,6 +27,9 @@
   .dot { width:10px; flex:none; }
   pre { background:#0d0f12; border:1px solid var(--line); border-radius:6px; padding:10px; margin:12px 0 0;
         max-height:320px; overflow:auto; font:12px/1.45 ui-monospace, Consolas, monospace; white-space:pre-wrap; }
+  .log > summary { margin-top:12px; cursor:pointer; color:var(--dim); font:12px ui-monospace, Consolas, monospace;
+                   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .log pre { margin-top:6px; }
   .running .dot { animation: pulse 1s infinite alternate; }
   @keyframes pulse { to { opacity:.3; } }
 </style>
@@ -54,7 +57,8 @@ function render(jobs) {
       <div class="body"><ol>${j.steps.map(s =>
         `<li class="s-${s.result}"><span class="dot">${icon[s.result] || "·"}</span>${esc(s.name)}</li>`).join("")}</ol>
         ${j.tail.length && (j.status === "running" || j.status === "failed")
-          ? `<pre>${esc(j.tail.join("\n"))}</pre>` : ""}</div></details>`;
+          ? `<details class="log" data-id="log:${esc(j.id)}" ${open.has("log:" + j.id) ? "open" : ""}>
+               <summary>${esc(j.tail[j.tail.length - 1])}</summary><pre>${esc(j.tail.join("\n"))}</pre></details>` : ""}</div></details>`;
   }).join("") || `<p class="meta">No jobs yet.</p>`;
   document.querySelectorAll("pre").forEach(p => p.scrollTop = p.scrollHeight);
   const cur = jobs[0];

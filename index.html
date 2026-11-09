@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local CI Watcher</title>
+<style>
+  :root { --bg:#14161a; --card:#1d2026; --line:#2b2f37; --fg:#e4e6ea; --dim:#8b919c;
+          --ok:#3fb950; --fail:#f85149; --run:#d29922; --skip:#6e7681; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; display:flex; gap:12px; align-items:center; }
+  #conn { font-size:12px; color:var(--dim); font-weight:400; }
+  .job { background:var(--card); border:1px solid var(--line); border-radius:8px; margin-bottom:12px; }
+  .job > summary { list-style:none; cursor:pointer; padding:12px 16px; display:flex; gap:12px; align-items:center; }
+  .job > summary::-webkit-details-marker { display:none; }
+  .meta { color:var(--dim); font-size:12px; }
+  .meta a { color:var(--dim); }
+  .badge { font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
+  .s-succeeded { color:var(--ok); } .s-failed { color:var(--fail); }
+  .s-running { color:var(--run); } .s-skipped, .s-unknown, .s-canceled, .s-cancelled { color:var(--skip); }
+  .body { padding: 0 16px 16px; }
+  ol { margin:0; padding:0; list-style:none; }
+  li { padding:3px 0; display:flex; gap:8px; }
+  li.s-failed { font-weight:600; }
+  .dot { width:10px; flex:none; }
+  pre { background:#0d0f12; border:1px solid var(--line); border-radius:6px; padding:10px; margin:12px 0 0;
+        max-height:320px; overflow:auto; font:12px/1.45 ui-monospace, Consolas, monospace; white-space:pre-wrap; }
+  .running .dot { animation: pulse 1s infinite alternate; }
+  @keyframes pulse { to { opacity:.3; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Local CI Watcher <span id="conn">connecting…</span> <button id="notify" hidden>Enable notifications</button></h1>
+  <div id="jobs"></div>
+</main>
+<script>
+const icon = { succeeded:"✓", failed:"✗", running:"●", skipped:"–" };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const open = new Set();
+let prev = {};
+
+function render(jobs) {
+  document.getElementById("jobs").innerHTML = jobs.map(j => {
+    const isOpen = j.status === "running" || j.status === "failed" || open.has(j.id);
+    const meta = [j.repository, j.ref?.replace("refs/heads/", ""), j.sha?.slice(0, 7),
+                  j.run_number && "#" + j.run_number].filter(Boolean).map(esc).join(" · ");
+    return `<details class="job ${j.status}" data-id="${esc(j.id)}" ${isOpen ? "open" : ""}>
+      <summary><span class="badge s-${j.status}">${esc(j.status)}</span>
+        <strong>${esc(j.name || "job")}</strong>
+        <span class="meta">${meta} ${j.url ? `· <a href="${esc(j.url)}" target="_blank">GitHub</a>` : ""}</span></summary>
+      <div class="body"><ol>${j.steps.map(s =>
+        `<li class="s-${s.result}"><span class="dot">${icon[s.result] || "·"}</span>${esc(s.name)}</li>`).join("")}</ol>
+        ${j.tail.length && (j.status === "running" || j.status === "failed")
+          ? `<pre>${esc(j.tail.join("\n"))}</pre>` : ""}</div></details>`;
+  }).join("") || `<p class="meta">No jobs yet.</p>`;
+  document.querySelectorAll("pre").forEach(p => p.scrollTop = p.scrollHeight);
+  const cur = jobs[0];
+  document.title = cur ? `${icon[cur.status] || ""} ${cur.name} – CI` : "Local CI Watcher";
+}
+
+function notifyChanges(jobs) {
+  for (const j of jobs) {
+    const was = prev[j.id];
+    if (was === "running" && j.status !== "running" && Notification.permission === "granted")
+      new Notification(`${j.name}: ${j.status}`, { body: j.repository || "" });
+    prev[j.id] = j.status;
+  }
+}
+
+document.addEventListener("toggle", e => {
+  const id = e.target.dataset?.id;
+  if (id) e.target.open ? open.add(id) : open.delete(id);
+}, true);
+
+const btn = document.getElementById("notify");
+if ("Notification" in window && Notification.permission === "default") {
+  btn.hidden = false;
+  btn.onclick = () => Notification.requestPermission().then(() => btn.hidden = true);
+}
+
+const conn = document.getElementById("conn");
+const es = new EventSource("/events");
+es.onopen = () => conn.textContent = "live";
+es.onerror = () => conn.textContent = "disconnected, retrying…";
+let first = true;
+es.onmessage = e => {
+  const jobs = JSON.parse(e.data);
+  if (first) { jobs.forEach(j => prev[j.id] = j.status); first = false; }
+  else notifyChanges(jobs);
+  render(jobs);
+};
+</script>
+</body>
+</html>
